@@ -2,6 +2,7 @@ mod operations;
 mod parser;
 
 use crate::operations::*;
+use crate::parser::{Command, Parser};
 
 fn main() {
     println!("Hello, world!");
