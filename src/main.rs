@@ -1,6 +1,7 @@
-mod constants;
+mod operations;
+mod parser;
 
-use crate::constants::*;
+use crate::operations::*;
 
 fn main() {
     println!("Hello, world!");
