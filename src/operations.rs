@@ -13,7 +13,7 @@ pub enum Operation {
     Sub,
     Neg,
     Eq,
-    Get,
+    Gt,
     Lt,
     And,
     Or,
@@ -40,7 +40,7 @@ impl FromStr for Operation {
             "sub"       => Ok(Operation::Sub),
             "neg"       => Ok(Operation::Neg),
             "eq"        => Ok(Operation::Eq),
-            "get"       => Ok(Operation::Get),
+            "gt"       => Ok(Operation::Gt),
             "lt"        => Ok(Operation::Lt),
             "and"       => Ok(Operation::And),
             "or"        => Ok(Operation::Or),
@@ -109,7 +109,7 @@ pub const ARITHMETIC_OPERATION: EnumSet<Operation> = enum_set!(
     Operation::Sub |
     Operation::Neg |
     Operation::Eq |
-    Operation::Get |
+    Operation::Gt |
     Operation::Lt |
     Operation::And |
     Operation::Or |
