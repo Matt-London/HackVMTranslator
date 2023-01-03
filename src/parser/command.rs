@@ -1,4 +1,3 @@
-use std::fmt::format;
 use std::str::FromStr;
 
 use crate::constants;
@@ -7,6 +6,10 @@ use crate::{Operation, operations::{OperationType, Segment, ARITHMETIC_OPERATION
 pub struct Command {
     /// Command number of current for loops
     command_count: u32,
+    /// Name of the program being executed (used by static and stuff)
+    program_name: String,
+    /// If it has a valid command or if it is blank
+    is_valid: bool,
     /// Original string being processed
     command_string: String,
     /// Original string split by whitespace
@@ -17,33 +20,70 @@ pub struct Command {
     operation_type: OperationType,
     /// Memory segment being operated on
     segment: Segment,
-    /// Location index of the segment being written to
-    location_index: u32,
+    /// Location index or value of the segment being written to
+    segment_i: u32,
     /// Resulting command strings (assembly commands) after the original command is processed
     parsed_cmd: Vec<String>,
 
 }
 
 impl Command {
-    pub fn new(command_str: &str, command_cnt: u32) -> Self {
+    pub fn new(command_str: &str, command_cnt: u32, prgm_name: &str) -> Self {
         let mut command = Command {
             command_count: command_cnt,
+            program_name: prgm_name.to_owned(),
+            is_valid: false,
             command_string: command_str.to_owned(),
             command_tokens: command_str.split_whitespace().map(str::to_string).collect(),
             operation: Operation::Default,
             operation_type: OperationType::Default,
             segment: Segment::Default,
-            location_index: 0,
+            segment_i: 0,
             parsed_cmd: Vec::new()
         };
 
-        command.parse();
+        command.is_valid = command.parse();
 
         return command;
     }
 
+    pub fn get_processed(&self) -> Option<&Vec<String>> {
+        if !self.is_valid {
+            return None;
+        }
+        return Some(&self.parsed_cmd);
+    }
+
+    pub fn has_command(&self) -> bool {
+        return self.is_valid;
+    }
+
     fn append_cmd(&mut self, cmd: &str) {
         self.parsed_cmd.push(cmd.to_owned());
+    }
+
+    /// Set d register to value i
+    fn set_d(&mut self, i: u32) {
+        self.append_cmd(&format!("@{}", i));
+        self.append_cmd("D=A");
+    }
+
+    /// Push whatever is in d onto the stack
+    fn push_d(&mut self) {
+        self.append_cmd("@SP");
+        self.append_cmd("A=M");
+        self.append_cmd("M=D");
+        // Increment SP
+        self.inc_sp();
+    }
+
+    /// Pop whatever is on the stack to d
+    fn pop_d(&mut self) {
+        self.append_cmd("@SP");
+        self.append_cmd("A=M-1");
+        self.append_cmd("D=M");
+        // Decrement
+        self.dec_sp();
     }
 
     /// Save SP1 in current
@@ -66,6 +106,13 @@ impl Command {
         // Increment SP
         self.append_cmd("@SP");
         self.append_cmd("M=M+1");
+    }
+
+    /// Decrement the stack pointer
+    fn dec_sp(&mut self) {
+        // Decrement SP
+        self.append_cmd("@SP");
+        self.append_cmd("M=M-1");
     }
 
     /// Run this function after loading operating value into D and decider as a param
@@ -108,7 +155,12 @@ impl Command {
     }
 
     /// Determines the correct parse call for the given operation type
-    fn parse(&mut self) {
+    fn parse(&mut self) -> bool {
+        // Check if it's a comment
+        if self.command_string.find("//") == Some(0) || self.command_string == "" {
+            return false;
+        }
+
         // Clear and append header of operation (original content)
         self.parsed_cmd.clear();
         self.append_cmd(&format!("// {}", self.command_string));
@@ -143,6 +195,7 @@ impl Command {
 
         }
         
+        return true;
 
     }
 
@@ -179,37 +232,35 @@ impl Command {
                 self.get_sp2();
                 self.append_cmd("D=M-D"); // If equal this value is 0
                 self.load_bool_jumps("JEQ"); // We want true if eq
-                self.inc_sp();
+                // self.inc_sp();
             },
             Operation::Gt   => {
                 self.get_sp1();
                 self.get_sp2();
                 self.append_cmd("D=M-D"); // We want x - y which is M - D
                 self.load_bool_jumps("JGT"); // We want true if gt
-                self.inc_sp();
+                // self.inc_sp();
             },
             Operation::Lt   => {
                 self.get_sp1();
                 self.get_sp2();
                 self.append_cmd("D=M-D");
                 self.load_bool_jumps("JLT"); // We want true if lt
-                self.inc_sp();
+                // self.inc_sp();
             },
             Operation::And  => {
                 self.get_sp1();
                 self.get_sp2();
                 self.append_cmd("D=M&D");
-                self.append_cmd("D=D-1"); // Now we subtract 1. If true we have 0 in D
-                self.load_bool_jumps("JEQ"); // We want true if eq
-                self.inc_sp();
+                self.push_d();
+                // self.inc_sp();
             },
             Operation::Or   => {
                 self.get_sp1();
                 self.get_sp2();
                 self.append_cmd("D=M|D");
-                self.append_cmd("D=D-1"); // Now we subtract 1. If true we have 0 in D
-                self.load_bool_jumps("JEQ"); // We want true if eq
-                self.inc_sp();
+                self.push_d();
+                // self.inc_sp();
             }
             _               => {}
         }
@@ -223,7 +274,139 @@ impl Command {
 
     /// Parse memory command into its hack commands
     fn parse_memory(&mut self) {
+        // Assign segment
+        self.segment = Segment::from_str(&self.command_tokens[1]).unwrap();
 
+        // Assign segment index
+        self.segment_i = self.command_tokens[2].parse().unwrap();
+        
+        // Save memory location as a string
+        let mut memory_addr = Segment::to_string(&self.segment);
+
+        // Parse local, argument, this, that
+        if self.segment == Segment::Local || self.segment == Segment::Argument
+            || self.segment == Segment::This || self.segment == Segment::That {
+
+            if self.operation == Operation::Push {
+                // Get the offset in the d register
+                self.set_d(self.segment_i);
+                // Get to the new memory address and add in the offset
+                self.append_cmd(&format!("@{}", memory_addr));
+                self.append_cmd("A=D+M"); // Go to the address
+
+                // Get value at ram in d reg
+                self.append_cmd("D=M");
+                // Now push d
+                self.push_d();
+            }
+            else if self.operation == Operation::Pop {
+                // Get the offset in d
+                self.set_d(self.segment_i);
+                
+                // Now go to the base and get address (base + i) in d
+                self.append_cmd(&format!("@{}", memory_addr));
+                self.append_cmd("D=M+D");
+
+                // Now save d in R13
+                self.append_cmd("@R13");
+                self.append_cmd("M=D");
+
+                // Get SP value into d
+                self.pop_d();
+
+                // Go to R13 and follow the pointer
+                self.append_cmd("@R13");
+                self.append_cmd("A=M");
+
+                // Now Save D into M
+                self.append_cmd("M=D");
+
+            }
+            else {
+                // Should never get here
+            }
+        }
+        else if self.segment == Segment::Static {
+            if self.operation == Operation::Push {
+                // Go to memory location
+                self.append_cmd(&format!("@{}.{}", self.program_name, self.segment_i));
+                // Get the value in d
+                self.append_cmd("D=M");
+                // Push d to the stack
+                self.push_d();
+            }
+            else if self.operation == Operation::Pop {
+                // Pop d
+                self.pop_d();
+                // Go to memory location
+                self.append_cmd(&format!("@{}.{}", self.program_name, self.segment_i));
+                // Set M to d
+                self.append_cmd("M=D");
+            }
+            else {
+                // Should never get here
+            }
+        }
+        else if self.segment == Segment::Temp {
+            let addr = constants::TEMP_START + self.segment_i;
+
+            if self.operation == Operation::Push {
+                // Go to address
+                self.append_cmd(&format!("@{}", addr));
+                // Set d to m
+                self.append_cmd("D=M");
+                // Push d
+                self.push_d();        
+            }
+            else if self.operation == Operation::Pop {
+                // Pop d
+                self.pop_d();
+                // Go to address
+                self.append_cmd(&format!("@{}", addr));
+                // Set m to d
+                self.append_cmd("M=D");
+            }
+            else {
+                // Should never get here
+            }
+        }
+        else if self.segment == Segment::Pointer {
+            // Get corresponding segment
+            memory_addr = if self.segment_i == 0 {"THIS".to_owned()} else {"THAT".to_owned()};
+
+            if self.operation == Operation::Push {
+                // Go to either this or that
+                self.append_cmd(&format!("@{}", memory_addr));
+                // Store address on stack
+                // ISSUE ? This might need to be M instead of D
+                self.append_cmd("D=M");
+                self.push_d();
+            }
+            else if self.operation == Operation::Pop {
+                // Pop D
+                self.pop_d();
+                // Go to this or that and store value into it from stack
+                self.append_cmd(&format!("@{}", memory_addr));
+                self.append_cmd("M=D");
+            }
+            else {
+                // Should never get here
+            }
+        }
+        else if self.segment == Segment::Constant {
+            if self.operation == Operation::Push {
+                // Get the constant value
+                self.set_d(self.segment_i);
+                self.push_d();
+            }
+            else if self.operation == Operation::Pop {
+                // Should never get here
+            }
+            else {
+                // Should never get here
+            }
+        }
+        
     }
 
     /// Parse function command into its hack commands
