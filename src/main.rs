@@ -3,16 +3,15 @@ mod operations;
 mod parser;
 
 use crate::operations::*;
-use crate::parser::{Command, Parser};
+use crate::parser::Parser;
+
+use std::env;
 
 fn main() {
-    println!("Hello, world!");
+    let args: Vec<String> = env::args().collect();
 
-    if FUNCTION_OPERATION.contains(Operation::Function) {
-        println!("Function in function op");
-    }
+    let mut parser = Parser::new(&args[1]);
 
-    if !FUNCTION_OPERATION.contains(Operation::Add) {
-        println!("Add in function not in op");
-    }
+    parser.output(&args[2]);
+    
 }
