@@ -8,3 +8,4 @@ edition = "2021"
 [dependencies]
 enumset = "1.0.12"
 substring = "1.4.5"
+clap = { version = "4.0.32", features = ["derive"] }
