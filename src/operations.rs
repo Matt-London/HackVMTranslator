@@ -1,3 +1,4 @@
+use core::fmt;
 use std::str::FromStr;
 
 use enumset::{EnumSetType, EnumSet, enum_set};
@@ -40,7 +41,7 @@ impl FromStr for Operation {
             "sub"       => Ok(Operation::Sub),
             "neg"       => Ok(Operation::Neg),
             "eq"        => Ok(Operation::Eq),
-            "gt"       => Ok(Operation::Gt),
+            "gt"        => Ok(Operation::Gt),
             "lt"        => Ok(Operation::Lt),
             "and"       => Ok(Operation::And),
             "or"        => Ok(Operation::Or),
@@ -99,6 +100,21 @@ impl FromStr for Segment {
             "pointer"   => Ok(Segment::Pointer),
             "temp"      => Ok(Segment::Temp),
             _           => Err(()),
+        }
+    }
+}
+
+impl fmt::Display for Segment {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Only the below will ever be called in to_string
+        match self {
+            Segment::None       => write!(f, ""),
+            Segment::Sp         => write!(f, "SP"),
+            Segment::Local      => write!(f, "LCL"),
+            Segment::Argument   => write!(f, "ARG"),
+            Segment::This       => write!(f, "THIS"),
+            Segment::That       => write!(f, "THAT"),
+            _                   => Ok(())
         }
     }
 }
