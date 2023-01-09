@@ -58,8 +58,121 @@ impl Command {
         return self.is_valid;
     }
 
+    /// Adds an assembly line command to the command vector for this VM command
     fn append_cmd(&mut self, cmd: &str) {
         self.parsed_cmd.push(cmd.to_owned());
+    }
+
+    /// Goes to specified address in the RAM with condition (None => "JMP")
+    /// 
+    /// Ex:
+    ///     goto_addr("TEST_LABEL", "JLT") 
+    ///      |
+    ///      |
+    ///      V
+    ///     @TEST_LABEL
+    ///     0; JLT
+    fn branch_addr(&mut self, addr: &str, jmp_cmd: Option<&str>) {
+        self.set_addr(addr);
+
+        let jmp;
+
+        match jmp_cmd {
+            Some(jmp_tst) => {
+                jmp = jmp_tst;
+            },
+            None => {
+                jmp = "JMP";
+            }
+        }
+
+        self.append_cmd(&format!("D; {}", jmp));
+    }
+
+    /// Sets address to the given string
+    fn set_addr(&mut self, addr: &str) {
+        self.append_cmd(&format!("@{}", addr));
+    }
+
+    /// Appends the label to the command
+    /// 
+    /// Ex:
+    ///     label
+    ///         -> "({label})"
+    fn append_label(&mut self, label: &str) {
+        self.append_cmd(format!("({})", label).as_str());
+    }
+
+    /// Pushes the label's address onto the stack
+    fn push_label_addr(&mut self, label: &str) {
+        self.set_addr(label);
+        self.append_cmd("D=A");
+        self.push_d();
+    }
+
+    /// Pushes the address of the passed in segment to the stack
+    fn push_segment_label(&mut self, segment: Segment) {
+        self.set_addr(segment.to_string().as_str());
+        self.append_cmd("D=M");
+        self.push_d();
+    }
+
+    /// Calls a function
+    /// 
+    /// Saves the current stack and return address
+    fn call_func(&mut self, function_name: &str, nargs: u32) {
+        // Push return address
+        let return_addr = format!("{}_{}", function_name, self.command_count);
+        self.push_label_addr(return_addr.as_str());
+
+        // Push LCL
+        self.push_segment_label(Segment::Local);
+
+        // Push ARG
+        self.push_segment_label(Segment::Argument);
+
+        // Push THIS
+        self.push_segment_label(Segment::This);
+
+        // Push THAT
+        self.push_segment_label(Segment::That);
+
+        // ARG = SP - 5 - nArgs
+        self.set_d(5);
+        self.set_addr(nargs.to_string().as_str());
+        self.append_cmd("D=D-A");
+        self.set_addr("SP");
+        self.append_cmd("D=M-D");
+        self.set_addr(Segment::Argument.to_string().as_str());
+        self.append_cmd("M=D");
+
+        // LCL = SP
+        self.set_addr("SP");
+        self.append_cmd("D=M");
+        self.set_addr(Segment::Local.to_string().as_str());
+        self.append_cmd("M=D");
+
+        // Goto functionName
+        self.set_addr(function_name);
+        self.append_cmd("0;JMP");
+
+        // (returnAddress)
+        self.append_label(return_addr.as_str());
+
+    }
+
+    /// Creates a function
+    /// 
+    /// Builds the new stack frame
+    fn function_func(&mut self, function_name: &str, nlocal: u32) {
+
+    }
+
+    /// Returns the function back to previous address
+    /// 
+    /// Cuts down current stack frame and jumps to return address on the stack
+    fn return_func(&mut self) {
+
     }
 
     /// Set d register to value i
@@ -71,19 +184,16 @@ impl Command {
     /// Push whatever is in d onto the stack
     fn push_d(&mut self) {
         self.append_cmd("@SP");
-        self.append_cmd("A=M");
+        self.append_cmd("M=M+1");
+        self.append_cmd("A=M-1");
         self.append_cmd("M=D");
-        // Increment SP
-        self.inc_sp();
     }
 
     /// Pop whatever is on the stack to d
     fn pop_d(&mut self) {
         self.append_cmd("@SP");
-        self.append_cmd("A=M-1");
+        self.append_cmd("AM=M-1");
         self.append_cmd("D=M");
-        // Decrement
-        self.dec_sp();
     }
 
     /// Save SP1 in current
@@ -269,7 +379,22 @@ impl Command {
 
     /// Parse branching command into its hack commands
     fn parse_branching(&mut self) {
+        let label = self.command_tokens[1].to_string();
+        match self.operation {
+            Operation::Label    => {
+                self.append_cmd(&format!("({})", label));
+            },
+            Operation::Goto     => {
+                self.branch_addr(&label, None);
+            },
+            Operation::IfGoto   => {
+                self.pop_d();
+                
+                self.branch_addr(&label, Some("JNE"));
 
+            },
+            _                   => {}
+        }
     }
 
     // Executes a memory command
@@ -317,7 +442,7 @@ impl Command {
 
             }
             else {
-                // Should never get here
+                panic!("Impossible error");
             }
         }
         else if segment == Segment::Static {
@@ -338,7 +463,7 @@ impl Command {
                 self.append_cmd("M=D");
             }
             else {
-                // Should never get here
+                panic!("Impossible error");
             }
         }
         else if segment == Segment::Temp {
@@ -361,7 +486,7 @@ impl Command {
                 self.append_cmd("M=D");
             }
             else {
-                // Should never get here
+                panic!("Impossible error");
             }
         }
         else if segment == Segment::Pointer {
@@ -384,7 +509,7 @@ impl Command {
                 self.append_cmd("M=D");
             }
             else {
-                // Should never get here
+                panic!("Impossible error");
             }
         }
         else if segment == Segment::Constant {
@@ -394,10 +519,10 @@ impl Command {
                 self.push_d();
             }
             else if op == Operation::Pop {
-                // Should never get here
+                panic!("Impossible to pop a constant");
             }
             else {
-                // Should never get here
+                panic!("Impossible error");
             }
         }
     }
@@ -416,6 +541,36 @@ impl Command {
 
     /// Parse function command into its hack commands
     fn parse_function(&mut self) {
+        let function_name_op: Option<String>;
+        let args_op: Option<u32>;
 
+        if self.operation == Operation::Call || self.operation == Operation::Function {
+            function_name_op = Some(self.command_tokens[1].to_string());
+            args_op = Some(self.command_tokens[2].parse().unwrap());
+        }
+        else {
+            function_name_op = None;
+            args_op = None;
+        }
+        
+
+        match self.operation {
+            Operation::Call => {
+                let function_name = function_name_op.unwrap();
+                let nargs = args_op.unwrap();
+
+                self.call_func(&function_name, nargs);
+            },
+            Operation::Return => {
+                self.return_func();
+            },
+            Operation::Function => {
+                let function_name = function_name_op.unwrap();
+                let nlocal = args_op.unwrap();
+
+                self.function_func(&function_name, nlocal);
+            },
+            _ => {}
+        }
     }
 }
