@@ -54,7 +54,7 @@ impl FromStr for Operation {
             "function"  => Ok(Operation::Function),
             "call"      => Ok(Operation::Call),
             "return"    => Ok(Operation::Return),
-            _           => Err(()),
+            _           => panic!("Read command ({}) is not a supported operation", s)
         }
     }
 }
@@ -99,7 +99,7 @@ impl FromStr for Segment {
             "static"    => Ok(Segment::Static),
             "pointer"   => Ok(Segment::Pointer),
             "temp"      => Ok(Segment::Temp),
-            _           => Err(()),
+            _           => panic!("No segment matching {}", s)
         }
     }
 }
@@ -114,7 +114,7 @@ impl fmt::Display for Segment {
             Segment::Argument   => write!(f, "ARG"),
             Segment::This       => write!(f, "THIS"),
             Segment::That       => write!(f, "THAT"),
-            _                   => Ok(())
+            _                   => panic!("Tried to convert segment to string that does not have a string representation")
         }
     }
 }
