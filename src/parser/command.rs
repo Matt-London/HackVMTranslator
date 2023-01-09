@@ -272,24 +272,18 @@ impl Command {
 
     }
 
-    /// Parse memory command into its hack commands
-    fn parse_memory(&mut self) {
-        // Assign segment
-        self.segment = Segment::from_str(&self.command_tokens[1]).unwrap();
-
-        // Assign segment index
-        self.segment_i = self.command_tokens[2].parse().unwrap();
-        
+    // Executes a memory command
+    fn exec_memory(&mut self, op: Operation, segment: Segment, segment_i: u32) {
         // Save memory location as a string
-        let mut memory_addr = Segment::to_string(&self.segment);
+        let mut memory_addr = Segment::to_string(&segment);
 
         // Parse local, argument, this, that
-        if self.segment == Segment::Local || self.segment == Segment::Argument
-            || self.segment == Segment::This || self.segment == Segment::That {
+        if segment == Segment::Local || segment == Segment::Argument
+            || segment == Segment::This || segment == Segment::That {
 
-            if self.operation == Operation::Push {
+            if op == Operation::Push {
                 // Get the offset in the d register
-                self.set_d(self.segment_i);
+                self.set_d(segment_i);
                 // Get to the new memory address and add in the offset
                 self.append_cmd(&format!("@{}", memory_addr));
                 self.append_cmd("A=D+M"); // Go to the address
@@ -299,9 +293,9 @@ impl Command {
                 // Now push d
                 self.push_d();
             }
-            else if self.operation == Operation::Pop {
+            else if op == Operation::Pop {
                 // Get the offset in d
-                self.set_d(self.segment_i);
+                self.set_d(segment_i);
                 
                 // Now go to the base and get address (base + i) in d
                 self.append_cmd(&format!("@{}", memory_addr));
@@ -326,20 +320,20 @@ impl Command {
                 // Should never get here
             }
         }
-        else if self.segment == Segment::Static {
-            if self.operation == Operation::Push {
+        else if segment == Segment::Static {
+            if op == Operation::Push {
                 // Go to memory location
-                self.append_cmd(&format!("@{}.{}", self.program_name, self.segment_i));
+                self.append_cmd(&format!("@{}.{}", self.program_name, segment_i));
                 // Get the value in d
                 self.append_cmd("D=M");
                 // Push d to the stack
                 self.push_d();
             }
-            else if self.operation == Operation::Pop {
+            else if op == Operation::Pop {
                 // Pop d
                 self.pop_d();
                 // Go to memory location
-                self.append_cmd(&format!("@{}.{}", self.program_name, self.segment_i));
+                self.append_cmd(&format!("@{}.{}", self.program_name, segment_i));
                 // Set M to d
                 self.append_cmd("M=D");
             }
@@ -347,10 +341,10 @@ impl Command {
                 // Should never get here
             }
         }
-        else if self.segment == Segment::Temp {
-            let addr = constants::TEMP_START + self.segment_i;
+        else if segment == Segment::Temp {
+            let addr = constants::TEMP_START + segment_i;
 
-            if self.operation == Operation::Push {
+            if op == Operation::Push {
                 // Go to address
                 self.append_cmd(&format!("@{}", addr));
                 // Set d to m
@@ -358,7 +352,7 @@ impl Command {
                 // Push d
                 self.push_d();        
             }
-            else if self.operation == Operation::Pop {
+            else if op == Operation::Pop {
                 // Pop d
                 self.pop_d();
                 // Go to address
@@ -370,11 +364,11 @@ impl Command {
                 // Should never get here
             }
         }
-        else if self.segment == Segment::Pointer {
+        else if segment == Segment::Pointer {
             // Get corresponding segment
-            memory_addr = if self.segment_i == 0 {"THIS".to_owned()} else {"THAT".to_owned()};
+            memory_addr = if segment_i == 0 {"THIS".to_owned()} else {"THAT".to_owned()};
 
-            if self.operation == Operation::Push {
+            if op == Operation::Push {
                 // Go to either this or that
                 self.append_cmd(&format!("@{}", memory_addr));
                 // Store address on stack
@@ -382,7 +376,7 @@ impl Command {
                 self.append_cmd("D=M");
                 self.push_d();
             }
-            else if self.operation == Operation::Pop {
+            else if op == Operation::Pop {
                 // Pop D
                 self.pop_d();
                 // Go to this or that and store value into it from stack
@@ -393,19 +387,30 @@ impl Command {
                 // Should never get here
             }
         }
-        else if self.segment == Segment::Constant {
-            if self.operation == Operation::Push {
+        else if segment == Segment::Constant {
+            if op == Operation::Push {
                 // Get the constant value
-                self.set_d(self.segment_i);
+                self.set_d(segment_i);
                 self.push_d();
             }
-            else if self.operation == Operation::Pop {
+            else if op == Operation::Pop {
                 // Should never get here
             }
             else {
                 // Should never get here
             }
         }
+    }
+
+    /// Parse memory command into its hack commands
+    fn parse_memory(&mut self) {
+        // Assign segment
+        self.segment = Segment::from_str(&self.command_tokens[1]).unwrap();
+
+        // Assign segment index
+        self.segment_i = self.command_tokens[2].parse().unwrap();
+
+        self.exec_memory(self.operation, self.segment, self.segment_i);
         
     }
 
