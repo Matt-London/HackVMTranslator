@@ -34,7 +34,7 @@ impl Command {
             program_name: prgm_name.to_owned(),
             is_valid: false,
             command_string: command_str.to_owned(),
-            command_tokens: command_str.split_whitespace().map(str::to_string).collect(),
+            command_tokens: vec![],
             operation: Operation::Default,
             operation_type: OperationType::Default,
             segment: Segment::Default,
@@ -45,6 +45,22 @@ impl Command {
         command.is_valid = command.parse();
 
         return command;
+    }
+
+    /// Writes in the init commands and wipes all other Command memory
+    pub fn write_init(&mut self) {
+        self.parsed_cmd.clear();
+
+        self.parsed_cmd.extend([
+            "@256".to_string(),
+            "D=A".to_string(),
+            "@SP".to_string(),
+            "M=D".to_string(),
+            "@Sys.init".to_string(),
+            "0;JMP".to_string()
+        ]);
+
+        self.is_valid = true;
     }
 
     pub fn get_processed(&self) -> Option<&Vec<String>> {
@@ -103,6 +119,12 @@ impl Command {
         self.append_cmd(format!("({})", label).as_str());
     }
 
+    /// Jumps to the given label such in the goto command
+    fn jump_to_label(&mut self, label: &str) {
+        self.set_addr(label);
+        self.append_cmd("0; JMP");
+    }
+
     /// Pushes the label's address onto the stack
     fn push_label_addr(&mut self, label: &str) {
         self.set_addr(label);
@@ -153,8 +175,7 @@ impl Command {
         self.append_cmd("M=D");
 
         // Goto functionName
-        self.set_addr(function_name);
-        self.append_cmd("0;JMP");
+        self.jump_to_label(function_name);
 
         // (returnAddress)
         self.append_label(return_addr.as_str());
@@ -165,6 +186,35 @@ impl Command {
     /// 
     /// Builds the new stack frame
     fn function_func(&mut self, function_name: &str, nlocal: u32) {
+        // (functionName)
+        self.append_label(function_name);
+
+        // push 0 * nlocal
+        for _i in 0..nlocal {
+            self.set_d(0);
+            self.push_d();
+        }
+
+    }
+
+    /// Sets the address of the given segment to the value at new_addr + offset
+    fn set_segment(&mut self, segment: Segment, new_addr: &str, offset: i32) {
+        self.set_d(offset.abs().try_into().unwrap());
+
+        self.set_addr(new_addr);
+
+        if offset < 0 {
+            self.append_cmd("A=M-D");
+        }
+        else {
+            self.append_cmd("A=M+D");
+        }
+
+        // We now save this value into the segment
+        self.append_cmd("D=M");
+
+        self.set_addr(segment.to_string().as_str());
+        self.append_cmd("M=D");
 
     }
 
@@ -172,12 +222,54 @@ impl Command {
     /// 
     /// Cuts down current stack frame and jumps to return address on the stack
     fn return_func(&mut self) {
+        // endFrame = LCL
+        self.set_addr(Segment::Local.to_string().as_str());
+        self.append_cmd("D=M");
+        self.set_addr("R13"); // Save LCL as endFrame in R13
+        self.append_cmd("M=D");
+
+        // retAddr = *(endFrame - 5)
+        self.set_d(5);
+        self.set_addr("R13");
+        self.append_cmd("A=M-D");
+        self.append_cmd("D=M");
+        self.set_addr("R14"); // Save return address in R14
+        self.append_cmd("M=D");
+
+        // *ARG = pop()
+        self.pop_d();
+        self.set_addr(Segment::Argument.to_string().as_str());
+        self.append_cmd("A=M");
+        self.append_cmd("M=D");
+
+        // SP = ARG + 1
+        self.set_addr(Segment::Argument.to_string().as_str());
+        self.append_cmd("D=M");
+        self.set_addr("SP");
+        self.append_cmd("M=D+1");
+
+        // THAT = *(endFame - 1)
+        self.set_segment(Segment::That, "R13", -1);
+
+        // THIS = *(endFame - 2)
+        self.set_segment(Segment::This, "R13", -2);
+
+        // ARG = *(endFame - 3)
+        self.set_segment(Segment::Argument, "R13", -3);
+        
+        // LCL = *(endFame - 4)
+        self.set_segment(Segment::Local, "R13", -4);
+
+        // goto retAddr
+        self.set_addr("R14");
+        self.append_cmd("A=M");
+        self.append_cmd("0;JMP");
 
     }
 
     /// Set d register to value i
     fn set_d(&mut self, i: u32) {
-        self.append_cmd(&format!("@{}", i));
+        self.set_addr(i.to_string().as_str());
         self.append_cmd("D=A");
     }
 
@@ -225,6 +317,19 @@ impl Command {
         self.append_cmd("M=M-1");
     }
 
+    /// Cleans the command of whitespace and comments
+    fn clean_command(&mut self) {
+        // Remove whitespace
+        self.command_string = self.command_string.trim().to_string();
+
+        // Remove comments
+        let comment_index = self.command_string.find("//");
+        if comment_index.is_some() {
+            self.command_string = self.command_string[0..comment_index.unwrap()].to_string();
+        }
+
+    }
+
     /// Run this function after loading operating value into D and decider as a param
     ///
     /// Example
@@ -270,6 +375,11 @@ impl Command {
         if self.command_string.find("//") == Some(0) || self.command_string == "" {
             return false;
         }
+
+        self.clean_command();
+
+        // Tokenize commands
+        self.command_tokens = self.command_string.split_whitespace().map(str::to_string).collect();
 
         // Clear and append header of operation (original content)
         self.parsed_cmd.clear();
@@ -408,7 +518,7 @@ impl Command {
 
             if op == Operation::Push {
                 // Get the offset in the d register
-                self.set_d(segment_i);
+                self.set_d(segment_i.try_into().unwrap());
                 // Get to the new memory address and add in the offset
                 self.append_cmd(&format!("@{}", memory_addr));
                 self.append_cmd("A=D+M"); // Go to the address
@@ -420,7 +530,7 @@ impl Command {
             }
             else if op == Operation::Pop {
                 // Get the offset in d
-                self.set_d(segment_i);
+                self.set_d(segment_i.try_into().unwrap());
                 
                 // Now go to the base and get address (base + i) in d
                 self.append_cmd(&format!("@{}", memory_addr));
@@ -515,7 +625,7 @@ impl Command {
         else if segment == Segment::Constant {
             if op == Operation::Push {
                 // Get the constant value
-                self.set_d(segment_i);
+                self.set_d(segment_i.try_into().unwrap());
                 self.push_d();
             }
             else if op == Operation::Pop {
