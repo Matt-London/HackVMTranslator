@@ -114,7 +114,7 @@ impl fmt::Display for Segment {
             Segment::Argument   => write!(f, "ARG"),
             Segment::This       => write!(f, "THIS"),
             Segment::That       => write!(f, "THAT"),
-            _                   => panic!("Tried to convert segment to string that does not have a string representation")
+            _                   => Ok(())
         }
     }
 }
