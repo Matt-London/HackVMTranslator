@@ -40,7 +40,9 @@ impl Parser {
         self.cmd_cnt += 1;
         command.write_init();
         self.command_list.push(command);
-
+        let sysinit = Command::new("call Sys.init 0", self.cmd_cnt, "");
+        self.cmd_cnt += 1;
+        self.command_list.push(sysinit);
     }
 
     /// Processes a vm file and appends its commands to the command_list
