@@ -56,8 +56,6 @@ impl Command {
             "D=A".to_string(),
             "@SP".to_string(),
             "M=D".to_string(),
-            "@Sys.init".to_string(),
-            "0;JMP".to_string()
         ]);
 
         self.is_valid = true;
@@ -162,7 +160,7 @@ impl Command {
         // ARG = SP - 5 - nArgs
         self.set_d(5);
         self.set_addr(nargs.to_string().as_str());
-        self.append_cmd("D=D-A");
+        self.append_cmd("D=D+A");
         self.set_addr("SP");
         self.append_cmd("D=M-D");
         self.set_addr(Segment::Argument.to_string().as_str());
